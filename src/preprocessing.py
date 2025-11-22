@@ -402,7 +402,6 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
     df = df.replace("5.400000e-79", 0.0)
     num_cols = df.select_dtypes(include=[np.number]).columns
     df[num_cols] = df[num_cols].mask(df[num_cols].abs() < 1e-50, 0.0)
-    original_cols = set(df.columns)
 
     # ============================================================
     # 0. MET VALUES + PHYSIOLOGICAL METRICS + ACTIVITY FREQUENCY
@@ -454,6 +453,7 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
         "_RACE_G1",
         "_AGEG5YR", "_AGE65YR", "_AGE_G",
         "VETERAN3", "INTERNET", "BLOODCHO",
+        "PA1MIN_", "PA1VIGM_", "_AIDTST3",
     ]
     dropped_simple_present = [c for c in cols_to_drop_simple if c in df.columns]
     df = df.drop(columns=cols_to_drop_simple, errors="ignore")
@@ -466,6 +466,7 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
     existing_diff_cols = [c for c in difficulty_cols if c in df.columns]
 
     if existing_diff_cols:
+        df = df.copy()
         df["PHYSICAL_DIFFICULTY"] = df[existing_diff_cols].sum(axis=1)
         df = df.drop(columns=existing_diff_cols, errors="ignore")
 
@@ -513,6 +514,10 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
 
     if dropped_simple_present:
         print(f"✓ Dropped admin / duplicate / out-of-scope columns: {dropped_simple_present}")
+    
+    new_extra_drops = [c for c in ["PA1MIN_", "PA1VIGM_", "_AIDTST3"] if c in dropped_simple_present]
+    if new_extra_drops:
+        print(f"✓ Dropped PA/HIV technical columns: {new_extra_drops}")
 
     if dropped_body_present:
         print(f"✓ Dropped raw body-size columns: {dropped_body_present} "
