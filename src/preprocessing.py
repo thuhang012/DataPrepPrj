@@ -356,39 +356,95 @@ def drop_high_cardinality_text_columns(df: pd.DataFrame, threshold: int = 50) ->
 
 def fix_boolean_encoding(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Fix encoding issues in boolean columns:
-    - Map 1 -> 1, 2 -> 0 (standard BRFSS Yes/No encoding)
-    - Map scientific notation values (1.0e+00 -> 1, 5.4e-79 -> 0)
-    
-    Returns the dataframe with properly encoded boolean columns.
+    Normalize boolean-like columns:
+
+    - For standard Yes/No variables coded 1=Yes, 2=No → map to 1/0.
+    - For risk-factor flags coded 1=No, 2=Yes → map to 0/1
+      so that 1 always means “risk/unhealthy”.
+    - Fix scientific-notation artifacts (tiny 5.4e-79 → 0) in some flags.
+
+    Returns a new dataframe with normalized boolean encodings.
     """
-    # Define columns with scientific notation issues
+    df = df.copy()
+
+    # 1) Các biến Yes/No chuẩn: 1 = Yes, 2 = No  → 1 → 1, 2 → 0
+    yes_no_1_yes_2_no = [
+        # Healthcare access
+        "HLTHPLN1", "MEDCOST",
+        # Chronic / history
+        "TOLDHI2", "CVDINFR4", "CVDCRHD4", "CVDSTRK3",
+        "ASTHMA3", "CHCSCNCR", "CHCOCNCR", "CHCCOPD1",
+        "HAVARTH3", "ADDEPEV2", "CHCKIDNY",
+        # Disability / equipment
+        "QLACTLM2", "USEEQUIP",
+        # Vaccines
+        "FLUSHOT6", "PNEUVAC3",
+        # Alcohol
+        "DRNKANY5",
+        # Diet
+        "_FRTLT1", "_VEGLT1",
+        # Physical activity flags (đã là 1/2 trong codebook)
+        "_TOTINDA",
+        "_PAINDX1", "_PA30021",
+        "_PASTRNG", "_PAREC1", "_PASTAE1",
+        "_LMTACT1", "_LMTWRK1", "_LMTSCL1",
+        "_RFSEAT2", "_RFSEAT3",
+        # Missing PA flag
+        "PAMISS1_",
+    ]
+
+    # 2) Các risk-flag: 1 = No, 2 = Yes  → ta muốn 1 = risk → 1 → 0, 2 → 1
+    risk_flag_1_no_2_yes = [
+        "_RFHYPE5",   # High BP
+        "_RFCHOL",    # High cholesterol
+        "_RFBMI5",    # Overweight/obese
+        "_RFSMOK3",   # Current smoker
+        "_RFBING5",   # Binge drinker
+        "_RFDRHV5",   # Heavy drinker
+    ]
+
+    # 3) Các cột có scientific-notation (5.4e-79 ~ 0, 1.0 ~ 1)
     float_encoded_cols = ['_FRTRESP', '_VEGRESP', '_FRT16', '_VEG23', 'PAMISS1_']
-    
-    # Identify all boolean columns (2 unique non-null values)
-    boolean_cols = []
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
-            n_unique = df[col].dropna().nunique()
-            if n_unique == 2:
-                boolean_cols.append(col)
-    
-    # 1. Handle standard 1/2 encoded columns
-    standard_bool_cols = [col for col in boolean_cols if col not in float_encoded_cols]
-    if standard_bool_cols:
-        print(f"\nMapping 1->0, 2->1 for {len(standard_bool_cols)} boolean columns")
-        df[standard_bool_cols] = df[standard_bool_cols].replace({1: 1, 2: 0, 1.0: 1.0, 2.0: 0.0})
-    
-    # 2. Handle float-encoded columns (scientific notation)
-    for col in float_encoded_cols:
-        if col in df.columns:
-            df[col] = df[col].apply(
-                lambda x: 1 if x == 1 or x == 1.0 else
-                            0 if (isinstance(x, float) and abs(x) < 1e-50) else x
-            )
-    
-    print(f"✓ Fixed encoding for {len(boolean_cols)} boolean columns")
+
+    # Lọc lại theo các cột thực sự tồn tại trong df
+    yes_no_cols = [c for c in yes_no_1_yes_2_no if c in df.columns]
+    risk_cols = [c for c in risk_flag_1_no_2_yes if c in df.columns]
+    float_cols = [c for c in float_encoded_cols if c in df.columns]
+
+    # 1. Map nhóm 1 = Yes, 2 = No → 1/0
+    if yes_no_cols:
+        print(f"\nMapping Yes/No (1=Yes,2=No → 1/0) for {len(yes_no_cols)} columns:")
+        print("  ", yes_no_cols)
+        df[yes_no_cols] = df[yes_no_cols].replace(
+            {1: 1, 2: 0, 1.0: 1.0, 2.0: 0.0}
+        )
+
+    # 2. Map nhóm risk-flag 1 = No, 2 = Yes → 0/1 (1 = risk)
+    if risk_cols:
+        print(f"\nMapping risk flags (1=No,2=Yes → 0/1) for {len(risk_cols)} columns:")
+        print("  ", risk_cols)
+        df[risk_cols] = df[risk_cols].replace(
+            {1: 0, 2: 1, 1.0: 0.0, 2.0: 1.0}
+        )
+
+    # 3. Sửa các giá trị scientific-notation (5.4e-79 ~ zero)
+    for col in float_cols:
+        col_series = pd.to_numeric(df[col], errors="coerce")
+        tiny_mask = col_series.abs() < 1e-50
+        # Ở đây coi tiny = 0, giữ nguyên 1.0
+        col_series = col_series.mask(tiny_mask, 0.0)
+        df[col] = col_series
+
+    # 4. (Optional) In thống kê nhanh số cột boolean cuối cùng
+    bool_like_cols = [
+        col for col in df.columns
+        if pd.api.types.is_numeric_dtype(df[col])
+        and df[col].dropna().nunique() == 2
+    ]
+    print(f"\n✓ Fixed encoding for {len(bool_like_cols)} boolean-like columns")
+
     return df
+
 
 def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
     """
