@@ -141,7 +141,7 @@ def apply_codebook_cleaning(df: pd.DataFrame) -> pd.DataFrame:
     if "CHILDREN" in df_clean_2.columns:
         df_clean_2["CHILDREN"] = (
             df_clean_2["CHILDREN"]
-            .replace({88: 0, 99: np.nan})
+            .replace({88: 0, 99: np.nan, 77: np.nan})
             .astype("float")
         )
 
@@ -315,11 +315,345 @@ def save_preprocessed_csv(df: pd.DataFrame, filename: str = "clean_2015.csv") ->
     print(f"Saved cleaned dataset to: {full_path}")
     return full_path
 
-def build_and_save_preprocessed(threshold: float = 0.5, filename: str = "clean_2015.csv") -> pd.DataFrame:
+def drop_questionnaire_metadata_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Run the entire preprocessing pipeline and save the final dataset
-    to data/processed/<filename>. Returns the dataframe.
+    Drop columns that are related to questionnaire metadata (not actual health data).
+    These include version, language, and other administrative fields.
     """
-    df = build_preprocessed_dataset(threshold=threshold)
-    save_preprocessed_csv(df, filename)
+    metadata_cols = [
+        "QSTVER",      # Questionnaire version
+        "QSTLANG",     # Language of interview
+    ]
+    
+    existing = [c for c in metadata_cols if c in df.columns]
+    if existing:
+        print(f"\nDropping {len(existing)} questionnaire metadata columns: {existing}")
+        df = df.drop(columns=existing)
+    
     return df
+
+
+def drop_high_cardinality_text_columns(df: pd.DataFrame, threshold: int = 50) -> pd.DataFrame:
+    """
+    Drop text/object columns that have more than the specified threshold 
+    of unique values. These are typically free-text fields that are hard to model.
+    """
+    text_cols = df.select_dtypes(include=['object']).columns.tolist()
+    
+    high_card_text = [
+        col for col in text_cols 
+        if df[col].nunique() > threshold
+    ]
+    
+    if high_card_text:
+        print(f"\nDropping {len(high_card_text)} high-cardinality text columns (>{threshold} unique values):")
+        for col in high_card_text:
+            print(f"  - {col} ({df[col].nunique()} unique values)")
+        df = df.drop(columns=high_card_text)
+    
+    return df
+
+
+def fix_boolean_encoding(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fix encoding issues in boolean columns:
+    - Map 1 -> 1, 2 -> 0 (standard BRFSS Yes/No encoding)
+    - Map scientific notation values (1.0e+00 -> 1, 5.4e-79 -> 0)
+    
+    Returns the dataframe with properly encoded boolean columns.
+    """
+    # Define columns with scientific notation issues
+    float_encoded_cols = ['_FRTRESP', '_VEGRESP', '_FRT16', '_VEG23', 'PAMISS1_']
+    
+    # Identify all boolean columns (2 unique non-null values)
+    boolean_cols = []
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            n_unique = df[col].dropna().nunique()
+            if n_unique == 2:
+                boolean_cols.append(col)
+    
+    # 1. Handle standard 1/2 encoded columns
+    standard_bool_cols = [col for col in boolean_cols if col not in float_encoded_cols]
+    if standard_bool_cols:
+        print(f"\nMapping 1->0, 2->1 for {len(standard_bool_cols)} boolean columns")
+        df[standard_bool_cols] = df[standard_bool_cols].replace({1: 1, 2: 0, 1.0: 1.0, 2.0: 0.0})
+    
+    # 2. Handle float-encoded columns (scientific notation)
+    for col in float_encoded_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(
+                lambda x: 1 if x == 1 or x == 1.0 else
+                            0 if (isinstance(x, float) and abs(x) < 1e-50) else x
+            )
+    
+    print(f"✓ Fixed encoding for {len(boolean_cols)} boolean columns")
+    return df
+
+def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
+    """
+    Lightweight feature cleaning and grouping:
+    - Scale MET / VO2 / FC / PA frequency variables
+    - Drop noisy / duplicate / out-of-scope columns
+    - Aggregate difficulty indicators
+    - Keep compact lifestyle blocks (BMI, SES, smoking, alcohol, diet)
+    """
+    df = df_prep.copy()
+    df = df.replace("5.400000e-79", 0.0)
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    df[num_cols] = df[num_cols].mask(df[num_cols].abs() < 1e-50, 0.0)
+    original_cols = set(df.columns)
+
+    # ============================================================
+    # 0. MET VALUES + PHYSIOLOGICAL METRICS + ACTIVITY FREQUENCY
+    # ============================================================
+
+    def process_met_values(series: pd.Series) -> pd.Series:
+        """
+        Convert stored MET values to true physiological values.
+        - Coerce to float
+        - Treat extremely small magnitudes as 0 (SAS floating artifact)
+        - Apply one implied decimal place (divide by 10)
+        """
+        # Coerce to float, invalid/parsing errors -> NaN
+        series_float = pd.to_numeric(series, errors="coerce")
+
+        # Any tiny value (e.g. 5.400000e-79) is just a floating-point zero artifact
+        tiny_mask = series_float.abs() < 1e-50
+        series_float[tiny_mask] = 0.0
+
+        # One implied decimal place
+        return series_float / 10.0
+
+    scaled_met_cols = []
+    for col in ["METVL11_", "METVL21_"]:
+        if col in df.columns:
+            df[col] = process_met_values(df[col])
+            scaled_met_cols.append(col)
+
+    scaled_vo2_cols = []
+    for col in ["MAXVO2_", "FC60_"]:
+        if col in df.columns:
+            df[col] = df[col].astype(float) / 100.0
+            scaled_vo2_cols.append(col)
+
+    scaled_freq_cols = []
+    if "PAFREQ1_" in df.columns:
+        df["PAFREQ1_"] = df["PAFREQ1_"].astype(float) / 1000.0
+        scaled_freq_cols.append("PAFREQ1_")
+
+    # ============================================================
+    # 1. SIMPLE CLEANING — DROP NOISY / DUPLICATE COLUMNS
+    # ============================================================
+
+    cols_to_drop_simple = [
+        "SMOKE100", "USENOW3", "EXERANY2", "SEATBELT", "HIVTST6",
+        "PCDMDECN", "_RFHLTH", "_HCVU651", "_LTASTH1", "_CASTHM1",
+        "_DRDXAR1",
+        "_PRACE1", "_MRACE1", "_HISPANC", "_RACE", "_RACEG21",
+        "_RACE_G1",
+        "_AGEG5YR", "_AGE65YR", "_AGE_G",
+        "VETERAN3", "INTERNET", "BLOODCHO",
+    ]
+    dropped_simple_present = [c for c in cols_to_drop_simple if c in df.columns]
+    df = df.drop(columns=cols_to_drop_simple, errors="ignore")
+
+    # ============================================================
+    # 1.2 Aggregate physical difficulty indicators
+    # ============================================================
+
+    difficulty_cols = ["BLIND", "DECIDE", "DIFFWALK", "DIFFDRES", "DIFFALON"]
+    existing_diff_cols = [c for c in difficulty_cols if c in df.columns]
+
+    if existing_diff_cols:
+        df["PHYSICAL_DIFFICULTY"] = df[existing_diff_cols].sum(axis=1)
+        df = df.drop(columns=existing_diff_cols, errors="ignore")
+
+    # ============================================================
+    # 2. BEHAVIORAL GROUPING — BMI, SES, SMOKING, ALCOHOL, DIET
+    # ============================================================
+
+    # Body size: drop raw height/weight and numeric BMI,
+    # keep _BMI5CAT and _RFBMI5
+    body_drop = ["HTIN4", "HTM4", "WTKG3", "_BMI5"]
+    dropped_body_present = [c for c in body_drop if c in df.columns]
+
+    # Alcohol: keep DRNKANY5, _RFBING5, _RFDRHV5
+    alcohol_drop = ["DROCDY3_", "_DRNKWEK"]
+    dropped_alcohol_present = [c for c in alcohol_drop if c in df.columns]
+
+    # Fruit & veg: keep _FRUTSUM, _VEGESUM, _FRTLT1, _VEGLT1
+    diet_drop = [
+        "FTJUDA1_", "FRUTDA1_", "BEANDAY_", "GRENDAY_", "ORNGDAY_",
+        "VEGEDA1_", "_MISFRTN", "_MISVEGN", "_FRTRESP", "_VEGRESP",
+        "_FRT16", "_VEG23", "_FRUITEX", "_VEGETEX",
+    ]
+    dropped_diet_present = [c for c in diet_drop if c in df.columns]
+
+    # Apply behavioral drops
+    cols_to_drop_behavior = body_drop + alcohol_drop + diet_drop
+    cols_to_drop_behavior = [c for c in cols_to_drop_behavior if c in df.columns]
+    df = df.drop(columns=cols_to_drop_behavior)
+
+    # ============================================================
+    # 3. SHORT TEXT REPORT
+    # ============================================================
+
+    print("\n================ Feature grouping / cleaning report ================\n")
+
+    if scaled_met_cols:
+        print(f"✓ Scaled MET variables (÷10, fix 5.4e-79): {scaled_met_cols}")
+    if scaled_vo2_cols:
+        print(f"✓ Scaled VO2 / functional capacity (÷100): {scaled_vo2_cols}")
+    if scaled_freq_cols:
+        print(f"✓ Scaled PA frequency (÷1000): {scaled_freq_cols}")
+
+    if existing_diff_cols:
+        print(f"✓ Combined difficulty indicators {existing_diff_cols} → 'PHYSICAL_DIFFICULTY'")
+
+    if dropped_simple_present:
+        print(f"✓ Dropped admin / duplicate / out-of-scope columns: {dropped_simple_present}")
+
+    if dropped_body_present:
+        print(f"✓ Dropped raw body-size columns: {dropped_body_present} "
+              f"(keep _BMI5CAT and _RFBMI5)")
+
+    if dropped_alcohol_present:
+        print(f"✓ Dropped detailed alcohol volume columns: {dropped_alcohol_present} "
+              f"(keep DRNKANY5, _RFBING5, _RFDRHV5)")
+
+    if dropped_diet_present:
+        print(f"✓ Dropped detailed fruit/veg and quality flags: {dropped_diet_present} "
+              f"(keep _FRUTSUM, _VEGESUM, _FRTLT1, _VEGLT1)")
+
+    print("\n===================================================================\n")
+
+    return df
+
+def classify_variables(df: pd.DataFrame) -> tuple:
+    """
+    Classify columns into numeric, categorical, and boolean types.
+    
+    Uses domain knowledge to correctly classify BRFSS variables:
+    - True numeric: counts and days where magnitude matters (PHYSHLTH, MENTHLTH, POORHLTH, CHILDREN)
+    - Ordinal: ordered categories like health status, education, income (keep as categorical)
+    - Nominal: unordered categories like race groups (keep as categorical)
+    - Boolean: binary 0/1 variables
+    
+    Returns:
+        tuple: (numeric_cols, categorical_cols, boolean_cols)
+    """
+    numeric_vars = []
+    categorical_vars = []
+    boolean_vars = []
+    
+    # Define true numeric columns (counts, days where magnitude matters)
+    TRUE_NUMERIC = [
+        'PHYSHLTH', 'MENTHLTH', 'POORHLTH', 'CHILDREN',
+        # Calculated numeric variables
+        '_DRNKWEK', 'DROCDY3_', 
+        # Weight, height, BMI continuous values
+        'WTKG3', 'HTIN4', 'HTM4', '_BMI5',
+        # Age continuous (if exists)
+        '_AGE80',
+        # Fruit/vegetable servings per day
+        'FTJUDA1_', 'FRUTDA1_', 'BEANDAY_', 'GRENDAY_', 'ORNGDAY_', 'VEGEDA1_',
+        '_FRUTSUM', '_VEGESUM',
+        # Physical activity minutes/METs
+        'METVL11_', 'METVL21_', 'MAXVO2_', 'FC60_',
+        'ACTIN11_', 'ACTIN21_', 'PADUR1_', 'PAFREQ1_', 'PAMIN11_', 'PA1MIN_',
+        'PAVIG11_', 'PA1VIGM_', '_MINAC11', '_MINAC21',
+    ]
+    
+    # Define ordinal/nominal categories (keep as categorical even if numeric codes)
+    ORDINAL_NOMINAL = [
+        # Ordinal health/socioeconomic
+        'GENHLTH', 'EDUCA', 'SEATBELT', 'CHECKUP1', 'INCOME2', 'EMPLOY1',
+        'PERSDOC2', 'CHOLCHK', 'DIABETE3', 'MARITAL', 'SMOKDAY2', 'USENOW3',
+        'TRNSGNDR',
+        # Age/BMI/Education/Income bins (ordinal categories)
+        '_AGEG5YR', '_BMI5CAT', '_EDUCAG', '_INCOMG', '_AGE_G', '_AGE65YR',
+        # Race groups (nominal)
+        '_PRACE1', '_MRACE1', '_HISPANC', '_RACE', '_RACEG21', '_RACEGR3', '_RACE_G1',
+        'SEX', '_CHLDCNT',
+        # Physical activity categories
+        '_PACAT1', '_PA150R2', '_PA300R2', '_PA30021',
+        # Smoking categories
+        '_SMOKER3',
+        # Other calculated categories
+        'IMFVPLAC', 'BPHIGH4',
+    ]
+
+    for col in df.columns:
+        # Skip object/categorical types (text)
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_categorical_dtype(df[col]):
+            categorical_vars.append(col)
+            continue
+
+        valid_series = df[col].dropna()
+        n_unique = valid_series.nunique()
+
+        # Boolean: exactly 2 unique values
+        if n_unique == 2:
+            boolean_vars.append(col)
+            continue
+        
+        # Force true numeric columns
+        if col in TRUE_NUMERIC:
+            numeric_vars.append(col)
+            continue
+        
+        # Force ordinal/nominal as categorical
+        if col in ORDINAL_NOMINAL:
+            categorical_vars.append(col)
+            continue
+
+        # For remaining columns, use heuristics
+        # Numeric: has decimal values
+        if pd.api.types.is_float_dtype(df[col]) and (valid_series % 1 != 0).any():
+            numeric_vars.append(col)
+            continue
+
+        # Default: high cardinality = numeric, low = categorical
+        if n_unique > 50:
+            numeric_vars.append(col)
+        else:
+            categorical_vars.append(col)
+
+    print(f"\n=== Variable Classification ===")
+    print(f"Numeric: {len(numeric_vars)}")
+    print(f"Categorical: {len(categorical_vars)}")
+    print(f"Boolean: {len(boolean_vars)}")
+    
+    return numeric_vars, categorical_vars, boolean_vars
+
+
+# def build_and_save_preprocessed(threshold: float = 0.5, filename: str = "clean_2015.csv") -> pd.DataFrame:
+#     """
+#     Run the entire preprocessing pipeline and save the final dataset
+#     to data/processed/<filename>. Returns the dataframe.
+    
+#     Pipeline steps:
+#     1. Load raw data
+#     2. Apply codebook cleaning (missing value mappings)
+#     3. Drop raw columns when calculated versions exist
+#     4. Drop high-missing columns
+#     5. Drop questionnaire metadata columns
+#     6. Drop high-cardinality text columns
+#     7. Fix boolean encoding (1/2 -> 0/1)
+#     8. Classify variables into numeric/categorical/boolean
+#     """
+#     df = build_preprocessed_dataset(threshold=threshold)
+    
+#     # Additional preprocessing steps
+#     df = drop_questionnaire_metadata_columns(df)
+#     df = drop_high_cardinality_text_columns(df, threshold=50)
+#     df = fix_boolean_encoding(df)
+    
+#     # Classify variables
+#     numeric_cols, categorical_cols, boolean_cols = classify_variables(df)
+    
+#     # Save the final preprocessed dataframe
+#     save_preprocessed_csv(df, filename)
+    
+#     return df
