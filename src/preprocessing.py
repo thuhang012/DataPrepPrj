@@ -103,6 +103,8 @@ def apply_codebook_cleaning(df: pd.DataFrame) -> pd.DataFrame:
         (activity_type_cols, {77: np.nan, 99: np.nan}),
     ]
 
+    df_clean_2["POORHLTH"] = df_clean_2["POORHLTH"].fillna(0)
+    
     for cols, mapping in pattern_replacements:
         existing = [c for c in cols if c in df_clean_2.columns]
         if existing:
@@ -497,6 +499,17 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
         df["PAFREQ1_"] = df["PAFREQ1_"].astype(float) / 1000.0
         scaled_freq_cols.append("PAFREQ1_")
 
+    scaled_frut_cols = []
+    for col in ['_VEGESUM', '_FRUTSUM']:
+        if col in df.columns:
+            df[col] = df[col].astype(float) / 100.0
+            scaled_frut_cols.append(col)
+
+    scale_strength_act_cols = []
+    if "STRFREQ_" in df.columns:
+        df["STRFREQ_"] = df["STRFREQ_"].astype(float) / 1000.0
+        scale_strength_act_cols.append("STRFREQ_")
+
     # ============================================================
     # 1. SIMPLE CLEANING — DROP NOISY / DUPLICATE COLUMNS
     # ============================================================
@@ -564,6 +577,10 @@ def feature_grouping(df_prep: pd.DataFrame) -> pd.DataFrame:
         print(f"✓ Scaled VO2 / functional capacity (÷100): {scaled_vo2_cols}")
     if scaled_freq_cols:
         print(f"✓ Scaled PA frequency (÷1000): {scaled_freq_cols}")
+    if scaled_frut_cols:
+        print(f"✓ Scaled Fruit & Veg  (÷100): {scaled_frut_cols}")
+    if scale_strength_act_cols:
+        print(f"✓ Scaled Strength Activity Frequency per Week (÷1000): {scale_strength_act_cols}")
 
     if existing_diff_cols:
         print(f"✓ Combined difficulty indicators {existing_diff_cols} → 'PHYSICAL_DIFFICULTY'")
