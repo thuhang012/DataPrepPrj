@@ -6,3 +6,7 @@ jupyter
 seaborn
 scipy
 statsmodels
+xgboost
+lightgbm
+shap
+imbalanced-learn
