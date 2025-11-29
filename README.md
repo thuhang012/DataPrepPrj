@@ -76,15 +76,17 @@ The project follows a systematic 5-stage pipeline:
 - **Output**: `clean_2015.csv` (437,514 rows × 171 columns)
 
 ### 3️⃣ Exploratory Data Analysis (CLEAN) - [`03_eda_clean.ipynb`](notebooks/03_eda_clean.ipynb)
-- Deep dive into cleaned data distributions
-- Comprehensive visualization suite:
-  - Target distribution analysis
-  - Health condition prevalence by heart disease status
-  - Lifestyle behavior patterns
-  - Physical activity analysis
-  - Age and demographic distributions
-  - BMI and weight category analysis
-- Correlation heatmaps and feature relationships
+- **Dataset**: 437,514 rows × 86 columns (cleaned BRFSS 2015)
+- **Target Prevalence**: 8.83% MI/CHD, 91.17% no MI/CHD (10.3:1 imbalance)
+- **Comprehensive Analysis**:
+  - **Demographics**: Age gradient analysis (0.8% at 18-34 to 21.0% at 75+), sex differences (11.19% male vs 7.10% female)
+  - **Health Status**: Self-rated health alignment with MI/CHD status
+  - **Comorbidities**: Hypertension, diabetes, high cholesterol, stroke patterns
+  - **Lifestyle**: Smoking status (never/former/current), BMI categories, physical activity levels
+  - **Healthcare Access**: Insurance, checkups, vaccinations (ascertainment bias analysis)
+  - **Physical Activity**: Detailed PA metrics, VO2 max, fitness scores
+  - **Risk Accumulation**: Multi-factor risk profiles and clustering
+- **Key Findings**: Age is strongest predictor, comorbidity clustering observed, former smoker paradox identified
 
 ### 4️⃣ Feature Engineering - [`04_feature_engineering.ipynb`](notebooks/04_feature_engineering.ipynb)
 Created **7 categories of engineered features**:
@@ -137,8 +139,58 @@ Created **7 categories of engineered features**:
 
 ### 📈 Visualizations
 
+#### Exploratory Data Analysis (Clean Dataset)
+
 <details>
-<summary><b>1. Confusion Matrices Comparison</b></summary>
+<summary><b>EDA-1. Target Distribution by Demographics</b></summary>
+
+![Target Distribution](reports/figures/eda_03_target_distribution.png)
+
+**Key Patterns:**
+- **Overall**: 398,881 no MI/CHD vs 38,633 with MI/CHD (10.3:1 imbalance)
+- **Age Gradient**: Exponential increase from 0.8% (18-34) to 21.0% (75+)
+- **Sex Difference**: Males 11.19% vs Females 7.10%
+- **Combined Effect**: Older males show highest prevalence (28.6% at 75+)
+
+</details>
+
+<details>
+<summary><b>EDA-2. Missing Data Analysis</b></summary>
+
+![Missingness](reports/figures/eda_02_missingness.png)
+
+**Data Quality:**
+- Physical activity variables have highest missingness (35-40%)
+- Income and pneumonia vaccine ~20% missing
+- Core demographics and health variables are complete
+- Preprocessing effectively minimized overall missingness
+
+</details>
+
+<details>
+<summary><b>EDA-3. Health Status & Comorbidities</b></summary>
+
+**Self-Rated Health Alignment**: Poor/Fair health shows 3-5x higher MI/CHD rates
+**Classical Risk Factors**: 
+- Hypertension: 60-70% in MI/CHD vs 30-40% in controls
+- High Cholesterol: 2-3x higher in MI/CHD group
+- Diabetes: 25-35% in MI/CHD vs 10-15% in controls
+
+</details>
+
+<details>
+<summary><b>EDA-4. Lifestyle Patterns</b></summary>
+
+**Smoking Paradox**: Former smokers show HIGHER MI/CHD rates than current smokers (survivor bias + post-diagnosis cessation)
+**BMI**: U-shaped relationship (underweight and obese show elevated risk)
+**Physical Activity**: Clear inverse relationship; sedentary lifestyle 2-3x higher risk
+
+</details>
+
+#### Model Development & Evaluation
+
+<details>
+<summary><b>Model-1. Confusion Matrices Comparison</b></summary>
 
 ![Confusion Matrices](reports/figures/05_confusion_matrices.png)
 
@@ -147,7 +199,7 @@ The feature-engineered model significantly reduces false negatives (missed cases
 </details>
 
 <details>
-<summary><b>2. Performance Metrics Comparison</b></summary>
+<summary><b>Model-2. Performance Metrics Comparison</b></summary>
 
 ![Metrics Comparison](reports/figures/05_metrics_comparison.png)
 
@@ -156,7 +208,7 @@ Dramatic improvement in Recall and F1-Score with feature engineering.
 </details>
 
 <details>
-<summary><b>3. ROC Curves</b></summary>
+<summary><b>Model-3. ROC Curves</b></summary>
 
 ![ROC Curves](reports/figures/05_roc_curves.png)
 
@@ -165,7 +217,7 @@ Both models show strong discrimination ability with AUC > 0.85.
 </details>
 
 <details>
-<summary><b>4. Precision-Recall Curves</b></summary>
+<summary><b>Model-4. Precision-Recall Curves</b></summary>
 
 ![PR Curves](reports/figures/05_pr_curves.png)
 
@@ -174,7 +226,7 @@ Feature-engineered model maintains better recall across probability thresholds.
 </details>
 
 <details>
-<summary><b>5. Feature Importance (Top 20)</b></summary>
+<summary><b>Model-5. Feature Importance (Top 20)</b></summary>
 
 ![Feature Importance FE](reports/figures/05_feature_importance_fe.png)
 
@@ -183,7 +235,7 @@ Top predictors include general health status, fitness score (FC60_), number of c
 </details>
 
 <details>
-<summary><b>6. Model Coefficients Distribution</b></summary>
+<summary><b>Model-6. Model Coefficients Distribution</b></summary>
 
 ![Coefficient Distribution](reports/figures/05_coefficient_distribution.png)
 
@@ -192,7 +244,7 @@ Feature-engineered model shows more balanced coefficient distribution.
 </details>
 
 <details>
-<summary><b>7. SHAP Summary Plot</b></summary>
+<summary><b>Model-7. SHAP Summary Plot</b></summary>
 
 ![SHAP Summary](reports/figures/05_shap_summary.png)
 
@@ -201,7 +253,7 @@ SHAP values reveal feature impact on individual predictions, with general health
 </details>
 
 <details>
-<summary><b>8. Permutation Importance</b></summary>
+<summary><b>Model-8. Permutation Importance</b></summary>
 
 ![Permutation Importance](reports/figures/05_permutation_importance.png)
 
@@ -236,7 +288,7 @@ Permutation importance confirms which features are most critical for model perfo
 
 1. **Clone the repository**
 ```bash
-git clone <repository-url>
+git clone <https://github.com/thuhang012/DataPrepPrj>
 cd DataPrepPrj
 ```
 
