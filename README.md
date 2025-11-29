@@ -157,7 +157,7 @@ Created **7 categories of engineered features**:
 <details>
 <summary><b>EDA-2. Missing Data Analysis</b></summary>
 
-![Missingness](reports/figures/eda_02_missingness.png)
+![Missingness](reports/figures/eda_03_missingness.png)
 
 **Data Quality:**
 - Physical activity variables have highest missingness (35-40%)
