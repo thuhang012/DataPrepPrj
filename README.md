@@ -198,18 +198,6 @@ The feature-engineered model significantly reduces false negatives (missed cases
 
 </details>
 
-<details>
-<summary><b>Model-2. Feature Coefficients (Risk vs Protective Factors)</b></summary>
-
-**RAW Dataset:**
-![Coefficients RAW](reports/figures/05_coefficients_raw.png)
-
-**FE Dataset:**
-![Coefficients FE](reports/figures/05_coefficients_fe.png)
-
-Ridge Classifier coefficients showing top 20 risk factors (positive coefficients in red) and protective factors (negative coefficients in blue). The FE dataset reveals engineered features like missing flags and interaction terms as strong predictors.
-
-</details>
 
 <details>
 <summary><b>Model-2. Performance Metrics Comparison</b></summary>
