@@ -1,0 +1,19 @@
+{
+  "timestamp": "20251130_115949",
+  "test_size": 0.3,
+  "random_state": 42,
+  "raw_model": {
+    "n_features": 17,
+    "best_alpha": 1000.0,
+    "test_recall": 0.811993097497843,
+    "test_roc_auc": 0.8528324103090931,
+    "false_negatives": 2179
+  },
+  "fe_model": {
+    "n_features": 35,
+    "best_alpha": 0.01,
+    "test_recall": 0.8137187230371009,
+    "test_roc_auc": 0.8530923879494333,
+    "false_negatives": 2159
+  }
+}

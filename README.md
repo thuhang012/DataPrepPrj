@@ -144,7 +144,7 @@ Created **7 categories of engineered features**:
 <details>
 <summary><b>EDA-1. Target Distribution by Demographics</b></summary>
 
-![Target Distribution](reports/figures/eda_03_target_distribution.png)
+![Target Distribution](reports/figures/03_02_target_distribution.png)
 
 **Key Patterns:**
 - **Overall**: 398,881 no MI/CHD vs 38,633 with MI/CHD (10.3:1 imbalance)
@@ -157,7 +157,7 @@ Created **7 categories of engineered features**:
 <details>
 <summary><b>EDA-2. Missing Data Analysis</b></summary>
 
-![Missingness](reports/figures/eda_03_missingness.png)
+![Missingness](reports/figures/03_01_missingness.png)
 
 **Data Quality:**
 - Physical activity variables have highest missingness (35-40%)
@@ -195,6 +195,19 @@ Created **7 categories of engineered features**:
 ![Confusion Matrices](reports/figures/05_confusion_matrices.png)
 
 The feature-engineered model significantly reduces false negatives (missed cases) from 1,448 to 306.
+
+</details>
+
+<details>
+<summary><b>Model-2. Feature Coefficients (Risk vs Protective Factors)</b></summary>
+
+**RAW Dataset:**
+![Coefficients RAW](reports/figures/05_coefficients_raw.png)
+
+**FE Dataset:**
+![Coefficients FE](reports/figures/05_coefficients_fe.png)
+
+Ridge Classifier coefficients showing top 20 risk factors (positive coefficients in red) and protective factors (negative coefficients in blue). The FE dataset reveals engineered features like missing flags and interaction terms as strong predictors.
 
 </details>
 
